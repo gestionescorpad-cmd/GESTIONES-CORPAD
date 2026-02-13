@@ -185,14 +185,15 @@ else:
 # ==========================================
 EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
 
-
 ANYMAIL = {
    "RESEND_API_KEY": env('RESEND_API_KEY', default=''),
 }
 
 # CONFIGURACIÓN DEL REMITENTE
-DEFAULT_FROM_EMAIL = "GESTIONES CORPAD <onboarding@resend.dev>" 
-SERVER_EMAIL = "onboarding@resend.dev" 
+# Actualizado: Ahora lee la variable DEFAULT_FROM_EMAIL. 
+# Si no existe (local), usa la de prueba de Resend.
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default="GESTIONES CORPAD <onboarding@resend.dev>")
+SERVER_EMAIL = env('DEFAULT_FROM_EMAIL', default="onboarding@resend.dev")
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -226,5 +227,5 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'SAMEORIGIN'
-           # AGREGAR ESTO PARA GMAIL
-# --- FIN DEL ARCHIVO (¡Sin llaves extra!) ---
+
+# --- FIN DEL ARCHIVO ---
