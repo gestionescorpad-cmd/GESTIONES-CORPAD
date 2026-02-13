@@ -187,14 +187,14 @@ else:
 
 # Configuración de Anymail
 #ANYMAIL = {
-  #  "RESEND_API_KEY": env('RESEND_API_KEY', default=''),
+  # "RESEND_API_KEY": env('RESEND_API_KEY', default=''),
 #}
 
 # CONFIGURACIÓN DEL REMITENTE
-#DEFAULT_FROM_EMAIL = "GESTIONES CORPAD <onboarding@resend.dev>" 
-#SERVER_EMAIL = "onboarding@resend.dev" 
+DEFAULT_FROM_EMAIL = "GESTIONES CORPAD <onboarding@resend.dev>" 
+SERVER_EMAIL = "onboarding@resend.dev" 
 
-#DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # ==========================================
