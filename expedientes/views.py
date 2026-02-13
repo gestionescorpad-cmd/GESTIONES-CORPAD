@@ -7,11 +7,12 @@ import json
 import uuid
 import zipfile
 import base64
-import logging # <--- 1. IMPORTANTE: Logging agregado
+import logging 
+import locale# <--- 1. IMPORTANTE: Logging agregado
 from io import BytesIO
 from datetime import datetime, timedelta
 from decimal import Decimal
-
+from django.utils.formats import date_format
 # --- Django Core ---
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout
@@ -574,39 +575,64 @@ def generador_contratos(request, cliente_id):
     memoria = cliente.datos_extra if isinstance(cliente.datos_extra, dict) else {}
     formulario = []
     
-    mapeo = {
-        'cliente.nombre_empresa': cliente.nombre_empresa,
-        'cliente.nombre_contacto': cliente.nombre_contacto,
-        'cliente.email': cliente.email,
-        'cliente.telefono': cliente.telefono,
-        'fecha_actual': timezone.now().strftime("%d/%m/%Y"),
+    # --- LÓGICA INTELIGENTE: VARIABLES AUTOMÁTICAS ---
+    hoy = timezone.now()
+    meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    fecha_larga = f"{hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+    
+    # Mapeo Automático de Datos del Sistema
+    datos_sistema = {
+        'cliente_empresa': cliente.nombre_empresa,
+        'cliente_contacto': cliente.nombre_contacto,
+        'cliente_email': cliente.email,
+        'cliente_telefono': cliente.telefono,
+        'cliente_direccion': memoria.get('direccion', ''),
+        'cliente_cargo': memoria.get('cargo', ''),
+        'fecha_corta': hoy.strftime("%d/%m/%Y"),
+        'fecha_larga': fecha_larga,
+        'anio_actual': str(hoy.year),
+        'firma_nombre': 'Lic. Maribel Aldana Santos',
+        'firma_cargo': 'Gestiones Corpad | Directora General',
     }
+
+    # Si el cliente viene de una cotización aceptada, buscamos datos financieros
+    cotizacion = Cotizacion.objects.filter(cliente_convertido=cliente, estado='aceptada').last()
+    if cotizacion:
+        datos_sistema.update({
+            'monto_total': f"${cotizacion.total_con_iva:,.2f}",
+            'monto_subtotal': f"${cotizacion.total:,.2f}",
+            'monto_anticipo': f"${(cotizacion.total_con_iva/2):,.2f}" if cotizacion.condiciones_pago == '50_50' else 'N/A',
+            'proyecto_titulo': cotizacion.titulo or 'Gestión Administrativa'
+        })
 
     vars_std_dict = {v.clave: v for v in VariableEstandar.objects.all()}
 
     for v in vars_en_doc:
+        # Si la variable está en nuestros datos automáticos, la pre-llenamos y marcamos como oculta/auto
+        if v in datos_sistema:
+            formulario.append({'clave': v, 'valor': datos_sistema[v], 'descripcion': 'Automático del Sistema', 'es_automatico': True, 'tipo': 'hidden'})
+            continue
+
         var_std = vars_std_dict.get(v)
         val = ""
-        auto = False
-        desc = "Variable"
+        desc = "Variable personalizada"
         tipo = "text"
 
         if var_std:
             desc = var_std.descripcion
             if var_std.tipo == 'fecha': tipo = 'date'
-            if var_std.origen == 'sistema':
-                val = mapeo.get(var_std.campo_bd, '')
-                auto = True
-            else: val = memoria.get(v, '')
-        else: val = memoria.get(v, '')
+            val = memoria.get(v, '')
+        else: 
+            val = memoria.get(v, '')
 
-        formulario.append({'clave': v, 'valor': val, 'descripcion': desc, 'es_automatico': auto, 'tipo': tipo})
+        formulario.append({'clave': v, 'valor': val, 'descripcion': desc, 'es_automatico': False, 'tipo': tipo})
 
     if request.method == 'POST':
         contexto = {}
         nuevos_datos = {}
         for item in formulario:
-            if item['es_automatico']: val = item['valor']
+            if item['es_automatico']: 
+                val = item['valor'] # Usar el valor calculado
             else:
                 val = request.POST.get(item['clave'], '').strip()
                 nuevos_datos[item['clave']] = val
@@ -623,7 +649,7 @@ def generador_contratos(request, cliente_id):
         nombre = request.POST.get('nombre_archivo_salida', '').strip() or f"{plantilla.nombre} - {cliente.nombre_empresa}"
         if not nombre.lower().endswith('.docx'): nombre += ".docx"
 
-        c_contratos, _ = Carpeta.objects.get_or_create(nombre="Contratos Generados", cliente=cliente, padre=None)
+        c_contratos, _ = Carpeta.objects.get_or_create(nombre="Contratos Generados", cliente=cliente, defaults={'es_expediente': False})
         nuevo = Documento(cliente=cliente, carpeta=c_contratos, nombre_archivo=nombre, subido_por=request.user)
         nuevo.archivo.save(nombre, ContentFile(buffer.getvalue()))
         nuevo.save()
@@ -666,29 +692,30 @@ def diseñador_plantillas(request):
                     lista = json.loads(data_reemplazos)
                     for item in lista:
                         original = item.get('texto_original', '')
-                        variable = "{{ " + item.get('variable', '') + " }}" 
-                        for p in doc.paragraphs:
-                            if original in p.text: p.text = p.text.replace(original, variable)
-                        for table in doc.tables:
-                            for row in table.rows:
-                                for cell in row.cells:
-                                    for p in cell.paragraphs:
-                                        if original in p.text: p.text = p.text.replace(original, variable)
+                        # Formato Jinja2 estándar: {{ variable }}
+                        variable = "{{ " + item.get('variable', '').strip() + " }}"
+                        
+                        # USAMOS LA FUNCIÓN HELPER PARA NO PERDER NEGRITAS/CURSIVAS
+                        reemplazar_preservando_estilo(doc, original, variable)
 
                 buffer = BytesIO()
                 doc.save(buffer)
                 buffer.seek(0)
+                
                 nombre_archivo = nombre if nombre.endswith('.docx') else f"{nombre}.docx"
                 nueva_plantilla = Plantilla(nombre=nombre)
                 nueva_plantilla.archivo.save(nombre_archivo, ContentFile(buffer.getvalue()))
                 nueva_plantilla.save()
-                messages.success(request, f"¡Plantilla '{nombre}' guardada!")
+                messages.success(request, f"¡Plantilla '{nombre}' creada con éxito! Formato preservado.")
             except Exception as e:
                 logger.error(f"Error en diseñador de plantillas: {e}")
-                messages.error(request, f"Error: {e}")
+                messages.error(request, f"Error procesando el archivo: {e}")
             return redirect('dashboard')
-    return render(request, 'generador/diseñador.html', {'glosario': VariableEstandar.objects.all().order_by('clave')})
-
+            
+    # Pasamos las variables estándar para mostrarlas en el HTML
+    return render(request, 'generador/diseñador.html', {
+        'glosario': VariableEstandar.objects.all().order_by('clave')
+    })
 @login_required
 def previsualizar_word_raw(request):
     # SEGURO: Eliminado @csrf_exempt
@@ -1931,3 +1958,28 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
             return redirect('detalle_cliente', cliente_id=cliente.id)
 
     return render(request, 'correo/enviar_correo_universal.html', context)
+def reemplazar_preservando_estilo(doc, variable, valor):
+    """
+    Busca una variable (ej: {{ cliente }}) en párrafos y tablas.
+    Reemplaza el texto dentro del 'Run' específico para NO perder
+    negritas, colores, cursivas o subrayados.
+    """
+    valor_str = str(valor)
+    
+    # 1. Buscar en Párrafos del cuerpo principal
+    for p in doc.paragraphs:
+        if variable in p.text:
+            # Iteramos sobre los 'runs' (fragmentos con estilo)
+            for run in p.runs:
+                if variable in run.text:
+                    run.text = run.text.replace(variable, valor_str)
+
+    # 2. Buscar en Tablas (celda por celda)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    if variable in p.text:
+                        for run in p.runs:
+                            if variable in run.text:
+                                run.text = run.text.replace(variable, valor_str)

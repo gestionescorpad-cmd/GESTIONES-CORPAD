@@ -5,11 +5,14 @@
     <div class="flex justify-between items-center mb-4">
         <div>
             <h2 class="text-2xl font-black text-[#2D1B4B]">Diseñador de Plantillas</h2>
-            <p class="text-sm text-gray-500">Selecciona texto y asígnalo a una variable del glosario o crea una nueva.</p>
+            <p class="text-sm text-gray-500">
+                <i class="fas fa-magic text-[#A855F7] mr-1"></i> 
+                Modo Inteligente: El sistema respetará tus negritas, colores y estilos originales.
+            </p>
         </div>
         <div class="flex gap-3">
             <input type="text" id="nombre-plantilla" placeholder="Nombre de la Plantilla Final" class="border-2 border-gray-300 p-2 rounded-xl text-sm font-bold w-64 focus:border-[#A855F7] outline-none text-[#2D1B4B]">
-            <button onclick="guardarPlantilla()" class="bg-[#2D1B4B] text-white px-6 py-2 rounded-xl font-bold text-xs shadow-lg hover:bg-[#A855F7] transition-colors">
+            <button onclick="guardarPlantilla()" class="bg-[#2D1B4B] text-white px-6 py-2 rounded-xl font-bold text-xs shadow-lg hover:bg-[#A855F7] transition-colors flex items-center">
                 <i class="fas fa-save mr-2"></i> GUARDAR MAESTRA
             </button>
         </div>
@@ -19,22 +22,50 @@
         
         <div class="flex-1 bg-white rounded-[2rem] shadow-xl border border-gray-200 flex flex-col relative overflow-hidden">
             <div id="drop-zone" class="absolute inset-0 bg-gray-50 z-20 flex flex-col items-center justify-center border-4 border-dashed border-gray-300 m-4 rounded-3xl hover:bg-purple-50 hover:border-purple-300 transition-colors cursor-pointer" onclick="document.getElementById('input-word-upload').click()">
-                <i class="fas fa-file-word text-6xl text-gray-300 mb-4"></i>
-                <h3 class="text-xl font-bold text-gray-500">Sube tu documento "Ejemplo" aquí</h3>
-                <p class="text-sm text-gray-400">Puede tener datos reales (Ej. Juan Pérez).</p>
+                <div class="bg-white p-6 rounded-full shadow-sm mb-4">
+                    <i class="fas fa-cloud-upload-alt text-5xl text-[#A855F7]"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-600">Sube tu documento "Ejemplo" aquí</h3>
+                <p class="text-sm text-gray-400 mt-2">Arrastra tu archivo .docx o haz clic para buscar</p>
                 <input type="file" id="input-word-upload" accept=".docx" class="hidden" onchange="cargarDocumento(this)">
             </div>
             
-            <div id="editor-canvas" class="flex-1 overflow-y-auto p-12 custom-scrollbar text-justify prose max-w-none hidden" onmouseup="detectarSeleccion()"></div>
+            <div id="editor-canvas" class="flex-1 overflow-y-auto p-12 custom-scrollbar text-justify prose max-w-none hidden select-text" onmouseup="detectarSeleccion()"></div>
         </div>
 
-        <div class="w-80 bg-white rounded-[2rem] shadow-lg border border-gray-100 flex flex-col">
-            <div class="p-5 bg-[#2D1B4B] text-white rounded-t-[2rem]">
-                <h3 class="font-bold text-sm"><i class="fas fa-list-ul mr-2 text-[#A855F7]"></i> Reemplazos Activos</h3>
+        <div class="w-80 flex flex-col gap-4 h-full">
+            
+            <div class="bg-white rounded-[2rem] shadow-lg border border-gray-100 p-5 relative overflow-hidden flex-shrink-0">
+                <div class="absolute top-0 right-0 w-16 h-16 bg-purple-50 rounded-bl-full -mr-8 -mt-8 z-0"></div>
+                
+                <h3 class="font-bold text-sm text-[#2D1B4B] mb-3 flex items-center gap-2 relative z-10">
+                    <i class="fas fa-robot text-[#A855F7]"></i> Variables Automáticas
+                </h3>
+                <p class="text-[10px] text-gray-400 mb-3 relative z-10 leading-tight">
+                    Haz clic para copiar. Estas variables se llenan solas.
+                </p>
+                
+                <div class="flex flex-wrap gap-2 relative z-10">
+                    <button onclick="copiar('{{ cliente_empresa }}')" class="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-[#2D1B4B] text-[10px] font-bold rounded-lg border border-purple-100 transition-colors">Empresa</button>
+                    <button onclick="copiar('{{ cliente_contacto }}')" class="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-[#2D1B4B] text-[10px] font-bold rounded-lg border border-purple-100 transition-colors">Contacto</button>
+                    <button onclick="copiar('{{ fecha_larga }}')" class="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded-lg border border-blue-100 transition-colors">Fecha Larga</button>
+                    <button onclick="copiar('{{ monto_total }}')" class="px-2 py-1 bg-green-50 hover:bg-green-100 text-green-700 text-[10px] font-bold rounded-lg border border-green-100 transition-colors">Monto $</button>
+                    <button onclick="copiar('{{ firma_nombre }}')" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 text-[10px] font-bold rounded-lg border border-gray-200 transition-colors">Firma Dir.</button>
+                </div>
             </div>
-            <div id="lista-reemplazos" class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-                <p class="text-xs text-center text-gray-400 mt-10">Selecciona texto para comenzar.</p>
+
+            <div class="bg-white rounded-[2rem] shadow-lg border border-gray-100 flex flex-col flex-1 overflow-hidden">
+                <div class="p-5 bg-[#2D1B4B] text-white rounded-t-[2rem] flex-shrink-0">
+                    <h3 class="font-bold text-sm"><i class="fas fa-list-ul mr-2 text-[#A855F7]"></i> Reemplazos Activos</h3>
+                </div>
+                <div id="lista-reemplazos" class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 custom-scrollbar">
+                    <div class="text-center mt-10 opacity-50">
+                        <i class="fas fa-mouse-pointer text-2xl text-gray-300 mb-2"></i>
+                        <p class="text-xs text-gray-400">Selecciona texto en el documento para crear una variable.</p>
+                    </div>
+                </div>
             </div>
+
         </div>
     </div>
 </div>
@@ -69,7 +100,9 @@
                 {% endfor %}
             </select>
 
-            <button onclick="confirmarReemplazo('existente')" class="w-full py-3 bg-[#2D1B4B] rounded-xl text-xs font-bold text-white hover:bg-opacity-90 shadow-lg">APLICAR VARIABLE</button>
+            <button onclick="confirmarReemplazo('existente')" class="w-full py-3 bg-[#2D1B4B] rounded-xl text-xs font-bold text-white hover:bg-opacity-90 shadow-lg transition-transform active:scale-95">
+                APLICAR VARIABLE
+            </button>
         </div>
 
         <div id="panel-nueva" class="hidden space-y-3">
@@ -81,7 +114,7 @@
                 <label class="text-[10px] font-bold text-gray-500 block mb-1">DESCRIPCIÓN (Para el usuario)</label>
                 <input type="text" id="nueva-desc" placeholder="Ej. Nombre Completo del Aval" class="w-full p-2 bg-white border-2 border-gray-200 rounded-lg text-sm text-gray-600 focus:border-[#A855F7] outline-none">
             </div>
-            <button onclick="crearYAsignar()" id="btn-crear" class="w-full py-3 bg-[#A855F7] rounded-xl text-xs font-bold text-white hover:bg-[#9333ea] shadow-lg flex justify-center items-center">
+            <button onclick="crearYAsignar()" id="btn-crear" class="w-full py-3 bg-[#A855F7] rounded-xl text-xs font-bold text-white hover:bg-[#9333ea] shadow-lg flex justify-center items-center transition-transform active:scale-95">
                 <span>GUARDAR Y APLICAR</span>
             </button>
         </div>
@@ -101,6 +134,28 @@
     let archivoActual=null, listaReemplazos=[], seleccionActual=null;
     const LLAVE_ABRE='\u007B\u007B', LLAVE_CIERRA='\u007D\u007D';
 
+    // Función para copiar variables al portapapeles
+    function copiar(texto) {
+        navigator.clipboard.writeText(texto).then(() => {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-[#2D1B4B] text-white px-4 py-3 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate__animated animate__fadeInUp';
+            toast.innerHTML = `
+                <div class="bg-green-500 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">
+                    <i class="fas fa-check"></i>
+                </div>
+                <div>
+                    <p class="font-bold text-xs">¡Copiado!</p>
+                    <p class="text-[10px] text-gray-300 opacity-80">${texto}</p>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.replace('animate__fadeInUp', 'animate__fadeOutDown');
+                setTimeout(() => toast.remove(), 500);
+            }, 2000);
+        });
+    }
+
     // Lógica de Pestañas
     function cambiarTab(modo) {
         document.getElementById('panel-existente').classList.toggle('hidden', modo !== 'existente');
@@ -111,7 +166,6 @@
         if(modo === 'existente'){
             tabEx.className = "flex-1 py-3 text-xs font-bold text-[#2D1B4B] border-b-2 border-[#2D1B4B] bg-white";
             tabNu.className = "flex-1 py-3 text-xs font-bold text-gray-400 bg-gray-50 hover:bg-gray-100";
-            // Enfocar buscador al cambiar
             setTimeout(() => document.getElementById('filtro-glosario').focus(), 100);
         } else {
             tabNu.className = "flex-1 py-3 text-xs font-bold text-[#A855F7] border-b-2 border-[#A855F7] bg-white";
@@ -119,9 +173,7 @@
         }
     }
 
-    // ==========================================
-    // NUEVA LÓGICA: FILTRADO DE VARIABLES
-    // ==========================================
+    // Filtrado de variables en el select
     document.getElementById('filtro-glosario').addEventListener('input', function(e) {
         const busqueda = e.target.value.toLowerCase();
         const opciones = document.getElementById('select-glosario').options;
@@ -130,34 +182,51 @@
         for (let i = 0; i < opciones.length; i++) {
             const texto = opciones[i].text.toLowerCase();
             if (texto.includes(busqueda)) {
-                opciones[i].style.display = ""; // Mostrar
+                opciones[i].style.display = ""; 
                 if (!found && busqueda.length > 0) {
-                    opciones[i].selected = true; // Auto-seleccionar primer match
+                    opciones[i].selected = true; 
                     found = true;
                 }
             } else {
-                opciones[i].style.display = "none"; // Ocultar
+                opciones[i].style.display = "none"; 
             }
         }
     });
 
-    // Permitir aplicar con Enter desde el buscador
     document.getElementById('filtro-glosario').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             confirmarReemplazo('existente');
         }
     });
 
+    // -------------------------------------------------------------
+    // FUNCIÓN CARGAR DOCUMENTO (CORREGIDA CON CSRF TOKEN)
+    // -------------------------------------------------------------
     async function cargarDocumento(input) {
         if (input.files && input.files[0]) {
             archivoActual = input.files[0];
-            document.getElementById('drop-zone').innerHTML = '<i class="fas fa-spinner fa-spin text-4xl text-[#A855F7]"></i><p class="mt-4 text-gray-500 font-bold">Procesando Word...</p>';
+            document.getElementById('drop-zone').innerHTML = '<i class="fas fa-spinner fa-spin text-4xl text-[#A855F7]"></i><p class="mt-4 text-gray-500 font-bold animate-pulse">Procesando Word...</p>';
             
             const formData = new FormData(); 
             formData.append('archivo', archivoActual);
             
+            // 1. Obtener el token del formulario oculto que pone Django
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
             try {
-                const res = await fetch("{% url 'previsualizar_word_raw' %}", { method: 'POST', body: formData });
+                // 2. Enviar el token en los headers
+                const res = await fetch("{% url 'previsualizar_word_raw' %}", { 
+                    method: 'POST', 
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                if (res.status === 403) {
+                    throw new Error("Permiso denegado (Falta Token de Seguridad). Recarga la página.");
+                }
+
                 const data = await res.json();
                 
                 if(data.html){
@@ -165,12 +234,12 @@
                     document.getElementById('editor-canvas').classList.remove('hidden');
                     document.getElementById('drop-zone').classList.add('hidden');
                 } else {
-                    alert("Error: No se pudo leer el contenido del Word.");
+                    alert("Error: " + (data.msg || "No se pudo leer el contenido del Word."));
                     location.reload(); 
                 }
             } catch(e) { 
                 console.error(e);
-                alert("Error al cargar el documento. Verifica tu conexión.");
+                alert("Error al cargar el documento: " + e.message);
                 location.reload();
             }
         }
@@ -197,7 +266,6 @@
             popup.classList.remove('hidden');
             popup.classList.add('animate__zoomIn');
             
-            // Limpiar filtro anterior
             document.getElementById('filtro-glosario').value = '';
             const opts = document.getElementById('select-glosario').options;
             for(let i=0; i<opts.length; i++) opts[i].style.display = "";
@@ -215,7 +283,8 @@
         listaReemplazos.push({ texto_original: seleccionActual, variable: variable });
         actualizarListaVisual();
         const editor = document.getElementById('editor-canvas');
-        const etiqueta = `<span class="bg-yellow-200 border-b-2 border-[#A855F7] px-1 font-mono text-xs text-black">${LLAVE_ABRE} ${variable} ${LLAVE_CIERRA}</span>`;
+        // Visualmente mostramos la variable
+        const etiqueta = `<span class="bg-yellow-200 border-b-2 border-[#A855F7] px-1 font-mono text-xs text-black" title="Variable: ${variable}">${LLAVE_ABRE} ${variable} ${LLAVE_CIERRA}</span>`;
         editor.innerHTML = editor.innerHTML.replace(seleccionActual, etiqueta);
         cancelarSeleccion();
     }
@@ -238,9 +307,15 @@
         btn.disabled = true;
 
         try {
+            // Aquí también agregamos el token por si acaso
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            
             const response = await fetch("{% url 'api_crear_variable' %}", {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
                 body: JSON.stringify({ clave: clave, descripcion: desc })
             });
             const data = await response.json();
@@ -268,8 +343,21 @@
 
     function actualizarListaVisual() {
         const cont = document.getElementById('lista-reemplazos'); cont.innerHTML = '';
+        if(listaReemplazos.length === 0) {
+            cont.innerHTML = `<div class="text-center mt-10 opacity-50"><i class="fas fa-mouse-pointer text-2xl text-gray-300 mb-2"></i><p class="text-xs text-gray-400">Selecciona texto para crear variables.</p></div>`;
+            return;
+        }
         listaReemplazos.forEach((item, i) => {
-            cont.innerHTML += `<div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center group animate__animated animate__fadeIn"><div class="truncate mr-2"><p class="text-[10px] text-gray-400 line-through truncate">${item.texto_original}</p><p class="text-xs font-black text-[#2D1B4B]">${LLAVE_ABRE} ${item.variable} ${LLAVE_CIERRA}</p></div><button onclick="eliminarReemplazo(${i})" class="text-red-400 hover:text-red-600"><i class="fas fa-times"></i></button></div>`;
+            cont.innerHTML += `
+            <div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center group animate__animated animate__fadeIn">
+                <div class="truncate mr-2">
+                    <p class="text-[10px] text-gray-400 line-through truncate">${item.texto_original}</p>
+                    <p class="text-xs font-black text-[#2D1B4B]">${LLAVE_ABRE} ${item.variable} ${LLAVE_CIERRA}</p>
+                </div>
+                <button onclick="eliminarReemplazo(${i})" class="text-red-400 hover:text-red-600 transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`;
         });
     }
     
@@ -277,7 +365,7 @@
     
     function guardarPlantilla() {
         const nombre = document.getElementById('nombre-plantilla').value;
-        if (!nombre || !archivoActual || listaReemplazos.length === 0) return alert("Faltan datos: Asegúrate de subir un archivo, hacer reemplazos y poner un nombre.");
+        if (!nombre || !archivoActual || listaReemplazos.length === 0) return alert("Faltan datos: Sube un archivo, haz al menos un reemplazo y pon un nombre.");
         
         document.getElementById('input-nombre-final').value = nombre;
         
@@ -289,7 +377,7 @@
         document.getElementById('form-final').submit();
     }
 
-    // DRAGGABLE LOGIC
+    // Lógica Drag & Drop del Popup
     document.addEventListener('DOMContentLoaded', () => {
         const popup = document.getElementById('popup-variable');
         const header = document.getElementById('popup-header');
