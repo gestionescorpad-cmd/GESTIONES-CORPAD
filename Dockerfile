@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 7. Recolectar archivos estáticos
-RUN SECRET_KEY=clave-temporal-para-build python manage.py collectstatic --noinput
+RUN SECRET_KEY=clave-temporal-para-build EMAIL_HOST_USER=dummy EMAIL_HOST_PASSWORD=dummy python manage.py collectstatic --noinput
 
 # 8. COMANDO DE INICIO (Con Puerto 8000 FIJO)
 # Usamos el puerto 8000 explícitamente para evitar errores de conexión (502)
