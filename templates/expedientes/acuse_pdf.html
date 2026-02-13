@@ -1,0 +1,116 @@
+{% load static %}
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: letter;
+            margin: 2.5cm;
+            @top-right {
+                content: "Página " counter(page);
+                font-family: 'Helvetica', sans-serif;
+                font-size: 9pt;
+                color: #888;
+            }
+        }
+        body { font-family: 'Helvetica', sans-serif; font-size: 10pt; line-height: 1.5; color: #333; }
+        .header { margin-bottom: 40px; border-bottom: 2px solid #2D1B4B; padding-bottom: 20px; }
+        .logo { width: 120px; float: left; }
+        .meta-info { text-align: right; float: right; margin-top: 10px; }
+        .meta-info p { margin: 0; font-size: 9pt; color: #555; }
+        .clear { clear: both; }
+        
+        .destinatario { margin-top: 30px; margin-bottom: 30px; }
+        .destinatario h3 { margin: 0; text-transform: uppercase; color: #2D1B4B; font-size: 11pt; }
+        .destinatario p { margin: 2px 0; }
+
+        .intro { margin-bottom: 20px; text-align: justify; }
+
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        th { background-color: #2D1B4B; color: white; padding: 8px; text-align: left; font-size: 9pt; text-transform: uppercase; }
+        td { border-bottom: 1px solid #eee; padding: 10px 8px; vertical-align: top; }
+        .col-doc { width: 60%; font-weight: bold; }
+        .col-det { width: 40%; color: #555; font-size: 9pt; }
+
+        .notas { background-color: #f9fafb; padding: 15px; border: 1px solid #eee; border-radius: 5px; font-size: 9pt; margin-bottom: 40px; }
+        .notas h4 { margin-top: 0; color: #e65100; text-transform: uppercase; font-size: 9pt; }
+        
+        .firma { text-align: center; margin-top: 60px; page-break-inside: avoid; }
+        .firma-linea { border-top: 1px solid #333; width: 250px; margin: 0 auto 10px auto; }
+        .firma-nombre { font-weight: bold; text-transform: uppercase; color: #2D1B4B; }
+        .firma-cargo { font-size: 9pt; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <img src="{{ base_url }}static/img/logo.png" class="logo"> 
+        <div class="meta-info">
+            <p><strong>Asunto:</strong> Entrega de Autorizaciones</p>
+            <p><strong>Fecha:</strong> {% now "d \d\e F \d\e Y" %}</p>
+            <p><strong>Lugar:</strong> Ciudad de México</p>
+        </div>
+        <div class="clear"></div>
+    </div>
+
+    <div class="destinatario">
+        <h3>{{ cliente.nombre_empresa }}</h3>
+        <p><strong>At'n:</strong> {{ cliente.nombre_contacto }}</p>
+        {% if cliente.datos_extra.cargo %}<p>{{ cliente.datos_extra.cargo }}</p>{% endif %}
+        <p>Presente</p>
+    </div>
+
+    <div class="intro">
+        <p>Estimado(a) Cliente,</p>
+        <p>Por medio de la presente y derivado de las gestiones realizadas por <strong>Gestiones Corpad</strong> a favor de su empresa, hacemos entrega formal de la documentación y autorizaciones liberadas que se enlistan a continuación:</p>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Documento / Autorización</th>
+                <th>Vigencia / Detalle</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for doc in documentos %}
+            <tr>
+                <td class="col-doc">{{ doc.nombre_archivo }}</td>
+                <td class="col-det">
+                    {% if doc.fecha_vencimiento %}
+                        <span style="color: #d97706;">Vence: {{ doc.fecha_vencimiento|date:"d/m/Y" }}</span>
+                    {% else %}
+                        Vigencia según normativa
+                    {% endif %}
+                    <br>
+                    <span style="font-size: 8pt; color: #999;">Entrega Digital (ZIP)</span>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="2" style="text-align: center; padding: 20px;">No hay documentos en esta carpeta.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="notas">
+        <h4>Observaciones Importantes:</h4>
+        <ul>
+            <li>Las Licencias y Autorizaciones originales deberán ser exhibidas en un lugar visible dentro del establecimiento.</li>
+            <li>Se recomienda realizar un respaldo digital adicional de estos archivos.</li>
+            <li>Para cualquier renovación, favor de contactarnos con 60 días de anticipación.</li>
+        </ul>
+    </div>
+
+    <div class="firma">
+        <div class="firma-linea"></div>
+        <div class="firma-nombre">Lic. Maribel Aldana Santos</div>
+        <div class="firma-cargo">Director General | Gestiones Corpad</div>
+        <div style="margin-top: 5px; font-size: 8pt; color: #888;">www.gestionescorpad.com</div>
+    </div>
+
+</body>
+</html>
