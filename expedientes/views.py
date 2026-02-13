@@ -1722,12 +1722,19 @@ def redactar_correo_autorizaciones(request, carpeta_id):
 @login_required
 def enviar_correo_universal(request, cliente_id, tipo_correo):
     """
-    Vista unificada para los 3 flujos de correo del sistema.
+    Vista unificada optimizada para evitar SPAM.
+    - Usa URL pública para el logo en lugar de adjunto CID.
+    - Envía respuestas a Maribel.
     """
     cliente = get_object_or_404(Cliente.objects.prefetch_related('carpetas_drive'), id=cliente_id)
     
+    # URL del logo para el correo (Evita penalización SpamAssassin)
+    # Cambia este dominio si usas uno propio en el futuro (ej: https://gestionescorpad.com/...)
+    domain = "https://portalgestionescorpad.up.railway.app"
+    logo_url = f"{domain}/static/img/logo.png"
+
     # ==========================================
-    # PREPARAR CONTEXTO SEGÚN TIPO
+    # PREPARAR CONTEXTO GENERAL
     # ==========================================
     context = {
         'cliente': cliente,
@@ -1735,9 +1742,10 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
         'destinatario': cliente.email or '',
         'firma_nombre': 'Lic. Maribel Aldana Santos',
         'firma_cargo': 'Gestiones Corpad | Directora General',
+        'logo_url': logo_url, 
     }
 
-    # --- COTIZACIÓN ---
+    # --- LÓGICA ESPECÍFICA POR TIPO (GET) ---
     if tipo_correo == 'cotizacion':
         cotizacion_id = request.GET.get('cotizacion_id') or request.POST.get('cotizacion_id')
         cotizacion = get_object_or_404(Cotizacion.objects.prefetch_related('items__servicio'), id=cotizacion_id)
@@ -1754,7 +1762,6 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
             'url_cancelar': reverse('detalle_cotizacion', args=[cotizacion.id]),
         })
 
-    # --- AUTORIZACIONES ---
     elif tipo_correo == 'autorizaciones':
         carpeta_id = request.GET.get('carpeta_id') or request.POST.get('carpeta_id')
         carpeta = get_object_or_404(Carpeta.objects.prefetch_related('documentos'), id=carpeta_id)
@@ -1774,7 +1781,6 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
             'url_cancelar': reverse('detalle_carpeta', args=[cliente.id, carpeta.id]),
         })
 
-    # --- RECORDATORIO ---
     elif tipo_correo == 'recordatorio':
         faltantes_por_carpeta = {}
         total_faltantes = 0
@@ -1821,109 +1827,88 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
         destinatario = request.POST.get('destinatario')
         asunto = request.POST.get('asunto')
         mensaje = request.POST.get('mensaje')
-        firma_nombre = request.POST.get('firma_nombre', 'Lic. Maribel Aldana Santos')
-        firma_cargo = request.POST.get('firma_cargo', 'Gestiones Corpad | Directora General')
-        usar_logo = request.POST.get('usar_logo_default') == 'on'
-
+        firma_nombre = request.POST.get('firma_nombre')
+        firma_cargo = request.POST.get('firma_cargo')
+        
+        # Contexto para el template HTML del correo
         email_context = {
             'cliente': cliente,
             'tipo_correo': tipo_correo,
             'mensaje': mensaje,
             'firma_nombre': firma_nombre,
             'firma_cargo': firma_cargo,
-            'usar_logo': usar_logo,
+            'logo_url': logo_url, # URL pública (NO CID)
         }
 
         try:
-            # --- COTIZACIÓN ---
+            # 1. PREPARACIÓN SEGÚN TIPO
+            pdf_bytes = None
+            zip_buffer = None
+            filename_adjunto = None
+
             if tipo_correo == 'cotizacion':
                 cotizacion_id = request.POST.get('cotizacion_id')
                 cotizacion = get_object_or_404(Cotizacion.objects.prefetch_related('items__servicio'), id=cotizacion_id)
+                email_context['cotizacion'] = cotizacion
                 
+                # Generar PDF
                 html_string = render_to_string('cotizaciones/pdf_template.html', {'c': cotizacion})
                 pdf_bytes = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
-                
-                email_context['cotizacion'] = cotizacion
-                html_body = render_to_string('correo/email_body_universal.html', email_context)
-                text_body = strip_tags(html_body)
-                
-                email = EmailMultiAlternatives(
-                    subject=asunto, body=text_body,
-                    from_email=settings.DEFAULT_FROM_EMAIL, to=[destinatario],
-                    # --- CAMBIO: RESPUESTA A MARIBEL ---
-                    reply_to=['maribel.aldana@gestionescorpad.com']
-                )
-                email.attach_alternative(html_body, "text/html")
-                email.attach(f"Cotizacion_{cotizacion.id}.pdf", pdf_bytes, 'application/pdf')
+                filename_adjunto = f"Cotizacion_{cotizacion.id}.pdf"
 
-            # --- AUTORIZACIONES ---
             elif tipo_correo == 'autorizaciones':
                 carpeta_id = request.POST.get('carpeta_id')
                 carpeta = get_object_or_404(Carpeta.objects.prefetch_related('documentos'), id=carpeta_id)
                 lista_adjuntos = carpeta.documentos.all()
+                email_context['lista_adjuntos'] = lista_adjuntos
                 
-                buffer = io.BytesIO()
-                with zipfile.ZipFile(buffer, 'w') as zip_file:
+                # Generar ZIP
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
                     for doc in lista_adjuntos:
                         try:
                             zip_file.write(doc.archivo.path, arcname=doc.nombre_archivo)
                         except FileNotFoundError:
-                            logger.warning(f"Archivo no encontrado para ZIP: {doc.nombre_archivo}")
-                buffer.seek(0)
-                
-                email_context['lista_adjuntos'] = lista_adjuntos
-                html_body = render_to_string('correo/email_body_universal.html', email_context)
-                text_body = strip_tags(html_body)
-                
-                email = EmailMultiAlternatives(
-                    subject=asunto, body=text_body,
-                    from_email=settings.DEFAULT_FROM_EMAIL, to=[destinatario],
-                    cc=[request.user.email],
-                    # --- CAMBIO: RESPUESTA A MARIBEL ---
-                    reply_to=['maribel.aldana@gestionescorpad.com']
-                )
-                email.attach_alternative(html_body, "text/html")
-                nombre_zip = f"Autorizaciones_{cliente.nombre_empresa}_{timezone.now().date()}.zip"
-                email.attach(nombre_zip, buffer.getvalue(), 'application/zip')
+                            pass
+                zip_buffer.seek(0)
+                filename_adjunto = f"Autorizaciones_{cliente.nombre_empresa}_{timezone.now().date()}.zip"
 
-            # --- RECORDATORIO ---
             elif tipo_correo == 'recordatorio':
-                faltantes_por_carpeta = {}
-                for carpeta in cliente.carpetas_drive.all():
-                    detalle = carpeta.obtener_detalle_cumplimiento()
-                    if detalle:
-                        items_rojos = [item['nombre'] for item in detalle if item['estado'] == 'missing']
-                        if items_rojos:
-                            faltantes_por_carpeta[carpeta.nombre] = items_rojos
-                
+                # Recuperar o crear link
                 solicitud = SolicitudEnlace.objects.filter(cliente=cliente, activa=True).last()
                 if not solicitud:
                     solicitud = SolicitudEnlace.objects.create(cliente=cliente)
                 link_carga = request.build_absolute_uri(f'/portal-cliente/{solicitud.id}/')
-
-                email_context['faltantes_por_carpeta'] = faltantes_por_carpeta
+                
+                email_context['faltantes_por_carpeta'] = context.get('faltantes_por_carpeta', {})
                 email_context['link_carga'] = link_carga
 
-                html_body = render_to_string('correo/email_body_universal.html', email_context)
-                text_body = strip_tags(html_body)
-                
-                email = EmailMultiAlternatives(
-                    subject=asunto, body=text_body,
-                    from_email=settings.DEFAULT_FROM_EMAIL, to=[destinatario],
-                    # --- CAMBIO: RESPUESTA A MARIBEL ---
-                    reply_to=['maribel.aldana@gestionescorpad.com']
-                )
-                email.attach_alternative(html_body, "text/html")
+            # 2. CONSTRUIR EL CORREO
+            html_body = render_to_string('correo/email_body_universal.html', email_context)
+            text_body = strip_tags(html_body) # Versión texto plano automática
 
-            # --- ADJUNTAR LOGO (común) ---
-            if usar_logo:
-                logo_path = os.path.join(settings.BASE_DIR, 'static', 'img', 'logo.png')
-                if os.path.exists(logo_path):
-                    with open(logo_path, 'rb') as f:
-                        logo = MIMEImage(f.read())
-                        logo.add_header('Content-ID', '<logo_firma>')
-                        email.attach(logo)
+            email = EmailMultiAlternatives(
+                subject=asunto,
+                body=text_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[destinatario],
+                reply_to=['maribel.aldana@gestionescorpad.com'] # <--- CLAVE PARA RESPUESTAS
+            )
+            
+            # Copia oculta al usuario en autorizaciones
+            if tipo_correo == 'autorizaciones':
+                email.cc = [request.user.email]
 
+            email.attach_alternative(html_body, "text/html")
+
+            # 3. ADJUNTAR ARCHIVOS (Si aplica)
+            if pdf_bytes:
+                email.attach(filename_adjunto, pdf_bytes, 'application/pdf')
+            
+            if zip_buffer:
+                email.attach(filename_adjunto, zip_buffer.getvalue(), 'application/zip')
+
+            # 4. ENVIAR
             email.send()
             messages.success(request, f"✅ Correo enviado exitosamente a {destinatario}")
             
@@ -1937,6 +1922,7 @@ def enviar_correo_universal(request, cliente_id, tipo_correo):
             logger.error(f"Error enviando correo universal ({tipo_correo}): {e}")
             messages.error(request, f"❌ Error al enviar el correo: {str(e)}")
 
+        # Redirigir
         if tipo_correo == 'cotizacion':
             return redirect('detalle_cotizacion', cotizacion_id=request.POST.get('cotizacion_id'))
         elif tipo_correo == 'autorizaciones':
