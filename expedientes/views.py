@@ -6,8 +6,12 @@ import os
 import json
 import uuid
 import zipfile
+import re
 import base64
 import logging 
+import json
+from .models import Plantilla
+from django.utils.text import slugify
 import locale# <--- 1. IMPORTANTE: Logging agregado
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -26,7 +30,6 @@ from django.db.models import Count, Q, Sum, Prefetch
 from django.http import JsonResponse, HttpResponse, FileResponse
 from django.core.files.base import ContentFile
 from django.utils import timezone
-from django.utils.text import slugify
 from django.utils.html import strip_tags
 from django.template.loader import render_to_string
 from django.core.mail import EmailMultiAlternatives, EmailMessage, send_mail
@@ -687,35 +690,91 @@ def diseñador_plantillas(request):
 
         if archivo and nombre:
             try:
+                # 1. Cargar el documento
                 doc = DocumentoWord(archivo)
+                
+                # 2. Aplicar reemplazos explícitos del Diseñador (Frontend)
                 if data_reemplazos:
                     lista = json.loads(data_reemplazos)
                     for item in lista:
                         original = item.get('texto_original', '')
-                        # Formato Jinja2 estándar: {{ variable }}
-                        variable = "{{ " + item.get('variable', '').strip() + " }}"
+                        variable_raw = item.get('variable', '').strip()
                         
-                        # USAMOS LA FUNCIÓN HELPER PARA NO PERDER NEGRITAS/CURSIVAS
-                        reemplazar_preservando_estilo(doc, original, variable)
+                        # Sanitizar nombre variable (Ej: "Nombre Cliente" -> "nombre_cliente")
+                        variable_clean = variable_raw.lower().replace(' ', '_').replace('-', '_')
+                        variable_clean = re.sub(r'[^a-z0-9_]', '', variable_clean) # Solo letras, numeros y _
+                        
+                        variable_formateada = "{{ " + variable_clean + " }}"
+                        
+                        modo = item.get('modo', 'SINGLE')
+                        
+                        # Usar la función helper que ya tienes (reemplazar_preservando_estilo)
+                        # Nota: Si usas replace simple, asegúrate de iterar runs.
+                        # Aquí asumimos que tienes la función helper, si no, usa una lógica simple:
+                        for p in doc.paragraphs:
+                            if original in p.text:
+                                p.text = p.text.replace(original, variable_formateada)
+                        
+                        for table in doc.tables:
+                            for row in table.rows:
+                                for cell in row.cells:
+                                    for p in cell.paragraphs:
+                                        if original in p.text:
+                                            p.text = p.text.replace(original, variable_formateada)
 
+                # 3. AUTO-REPARACIÓN DE VARIABLES ROTAS (NUEVO - NIVEL ENTERPRISE)
+                # Escanea todo el documento buscando {{ ALGO MAL ESCRITO }} y lo arregla
+                
+                def reparar_texto(texto):
+                    # Busca patrones {{ ... }}
+                    pattern = r'\{\{\s*(.*?)\s*\}\}'
+                    
+                    def replacer(match):
+                        contenido = match.group(1)
+                        # Si tiene espacios o caracteres raros, lo arreglamos
+                        if ' ' in contenido or not contenido.isidentifier():
+                            nuevo_contenido = slugify(contenido).replace('-', '_')
+                            return f"{{{{ {nuevo_contenido} }}}}"
+                        return match.group(0) # Si está bien, lo deja igual
+                    
+                    return re.sub(pattern, replacer, texto)
+
+                # Aplicar reparación a todo el documento
+                for p in doc.paragraphs:
+                    if '{{' in p.text:
+                        p.text = reparar_texto(p.text)
+                
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            for p in cell.paragraphs:
+                                if '{{' in p.text:
+                                    p.text = reparar_texto(p.text)
+
+                # 4. Guardar archivo final
                 buffer = BytesIO()
                 doc.save(buffer)
                 buffer.seek(0)
                 
                 nombre_archivo = nombre if nombre.endswith('.docx') else f"{nombre}.docx"
+                
+                # Crear registro en BD
                 nueva_plantilla = Plantilla(nombre=nombre)
                 nueva_plantilla.archivo.save(nombre_archivo, ContentFile(buffer.getvalue()))
                 nueva_plantilla.save()
-                messages.success(request, f"¡Plantilla '{nombre}' creada con éxito! Formato preservado.")
+                
+                messages.success(request, f"¡Plantilla '{nombre}' guardada y optimizada correctamente!")
+                
             except Exception as e:
-                logger.error(f"Error en diseñador de plantillas: {e}")
-                messages.error(request, f"Error procesando el archivo: {e}")
+                print(f"Error CRÍTICO en diseñador: {e}") # Ver en consola
+                messages.error(request, f"Error procesando el archivo: {str(e)}")
+            
             return redirect('dashboard')
             
-    # Pasamos las variables estándar para mostrarlas en el HTML
     return render(request, 'generador/diseñador.html', {
         'glosario': VariableEstandar.objects.all().order_by('clave')
     })
+
 @login_required
 def previsualizar_word_raw(request):
     # SEGURO: Eliminado @csrf_exempt
@@ -1983,3 +2042,62 @@ def reemplazar_preservando_estilo(doc, variable, valor):
                         for run in p.runs:
                             if variable in run.text:
                                 run.text = run.text.replace(variable, valor_str)
+@login_required
+def generar_contrato_final(request):
+    """
+    Recibe los datos del formulario de homologación y genera el Word final.
+    Mantiene los estilos (negritas, cursivas) definidos en la plantilla original.
+    """
+    if request.method == 'POST':
+        try:
+            # 1. Identificar qué plantilla estamos usando
+            plantilla_id = request.POST.get('plantilla_id')
+            plantilla = get_object_or_404(Plantilla, id=plantilla_id)
+
+            # 2. Limpiar y preparar el "Contexto" (Diccionario de datos)
+            # Filtramos los datos que NO son variables del contrato (tokens, ids, etc.)
+            campos_ignorados = ['csrfmiddlewaretoken', 'plantilla_id', 'nombre_archivo_salida']
+            contexto = {}
+
+            for key, value in request.POST.items():
+                if key not in campos_ignorados:
+                    # Guardamos la variable. 
+                    # NOTA: Aunque 'value' es texto plano, al inyectarse en el Word
+                    # tomará el formato que tenga la llave {{ key }} en el archivo .docx
+                    contexto[key] = value
+
+            # 3. Cargar la Plantilla Maestra usando DocxTemplate
+            # Esto es vital. No usamos 'python-docx' directo, usamos 'docxtpl' 
+            # porque es el motor que sabe leer Jinja2 dentro de Word.
+            doc = DocxTemplate(plantilla.archivo.path)
+
+            # 4. RENDERIZADO (El momento mágico)
+            # Aquí se sustituyen las {{ variables }} por el texto del formulario.
+            # Los estilos se conservan porque solo se cambia el contenido XML del texto, no el contenedor.
+            doc.render(contexto)
+
+            # 5. Preparar el nombre del archivo de salida
+            nombre_salida = request.POST.get('nombre_archivo_salida', 'Documento_Generado')
+            # Sanitización básica para asegurar extensión .docx
+            nombre_salida = nombre_salida.strip().replace('/', '_').replace('\\', '_')
+            if not nombre_salida.lower().endswith('.docx'):
+                nombre_salida += '.docx'
+
+            # 6. Crear la respuesta HTTP para forzar la descarga
+            response = HttpResponse(
+                content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{nombre_salida}"'
+
+            # 7. Guardar el documento procesado directamente en la respuesta (sin guardar en disco)
+            doc.save(response)
+
+            return response
+
+        except Exception as e:
+            # Manejo de errores básico
+            print(f"Error generando contrato: {str(e)}")
+            # Aquí podrías usar messages.error(request, ...)
+            return redirect('dashboard') # O redirige a donde prefieras en caso de error
+
+    return redirect('dashboard')

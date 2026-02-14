@@ -85,7 +85,7 @@ urlpatterns = [
     path('finanzas/pagar/', views.registrar_pago, name='registrar_pago'),
     path('finanzas/recibo/<int:pago_id>/', views.recibo_pago_pdf, name='recibo_pago_pdf'),
     path('correo/<uuid:cliente_id>/<str:tipo_correo>/', views.enviar_correo_universal, name='enviar_correo_universal'),
-    
+    path('generar-final/', views.generar_contrato_final, name='generar_contrato_final'),
     # AGENDA
     path('agenda/', views.agenda_legal, name='agenda_legal'),
     path('agenda/api/', views.api_eventos, name='api_eventos'),
