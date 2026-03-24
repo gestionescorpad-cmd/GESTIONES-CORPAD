@@ -1673,25 +1673,12 @@ def subir_archivo_requisito(request, carpeta_id):
 
         if archivo and nombre_requisito:
             try:
-                # ---> SE ELIMINÓ LA RESTRICCIÓN DE MAGIC PARA ADMITIR TODO TIPO DE ARCHIVOS <---
-                
                 anio_actual = timezone.now().year
                 ext = archivo.name.split('.')[-1] if '.' in archivo.name else 'pdf'
                 nuevo_nombre_formal = f"{nombre_requisito} {cliente.nombre_empresa} {anio_actual}.{ext}"
 
-                carpetas_destino = []
-                todas_carpetas = cliente.carpetas_drive.all()
-
-                for carpeta in todas_carpetas:
-                    requisitos_carpeta = carpeta.obtener_detalle_cumplimiento()
-                    if requisitos_carpeta:
-                        for req in requisitos_carpeta:
-                            if req['nombre'] == nombre_requisito:
-                                carpetas_destino.append(carpeta)
-                                break
-                
-                if not carpetas_destino:
-                    carpetas_destino.append(carpeta_origen)
+                # --- CORRECCIÓN: Guardar estrictamente SOLO en la carpeta donde se subió ---
+                carpetas_destino = [carpeta_origen]
 
                 count = 0
                 for carpeta_target in carpetas_destino:
@@ -1730,8 +1717,8 @@ def subir_archivo_requisito(request, carpeta_id):
                     nuevo_doc.save()
                     count += 1
 
-                registrar_bitacora(request.user, cliente, 'subida', f"Actualizó el requisito '{nombre_requisito}' en {count} carpeta(s) como '{nuevo_nombre_formal}'.")
-                messages.success(request, f'✅ Archivo actualizado exitosamente en {count} carpeta(s) con el nombre: "{nuevo_nombre_formal}".')
+                registrar_bitacora(request.user, cliente, 'subida', f"Actualizó el requisito '{nombre_requisito}' en la carpeta '{carpeta_origen.nombre}' como '{nuevo_nombre_formal}'.")
+                messages.success(request, f'✅ Archivo actualizado exitosamente con el nombre: "{nuevo_nombre_formal}".')
 
             except Exception as e:
                 logger.error(f"Error procesando archivo requisito: {e}")
@@ -1742,7 +1729,6 @@ def subir_archivo_requisito(request, carpeta_id):
         return redirect('detalle_cliente', cliente_id=cliente.id)
     
     return redirect('dashboard')
-
 @login_required
 def enviar_recordatorio_documentacion(request, cliente_id):
     cliente = get_object_or_404(Cliente.objects.prefetch_related('carpetas_drive'), id=cliente_id)
@@ -1996,6 +1982,7 @@ def aprobar_archivo_temporal(request, temp_id):
         ext = temp.archivo.name.split('.')[-1]
         nuevo_nombre_formal = f"{temp.nombre_requisito} {cliente.nombre_empresa} {anio_actual}.{ext}"
         
+        # --- CORRECCIÓN: Si viene del portal del cliente, guardarlo SOLO en la PRIMERA carpeta que lo necesite ---
         carpetas_destino = []
         for carpeta in cliente.carpetas_drive.all():
             requisitos = carpeta.obtener_detalle_cumplimiento()
@@ -2004,6 +1991,10 @@ def aprobar_archivo_temporal(request, temp_id):
                     if req['nombre'] == temp.nombre_requisito:
                         carpetas_destino.append(carpeta)
                         break
+            
+            # Frenar la búsqueda en cuanto encuentre la primera coincidencia
+            if carpetas_destino:
+                break
         
         if not carpetas_destino:
             carpetas_destino.append(cliente.carpetas_drive.first())
@@ -2021,14 +2012,13 @@ def aprobar_archivo_temporal(request, temp_id):
             
         registrar_bitacora(request.user, cliente, 'aprobacion', f"Aprobó el archivo del portal externo: '{nuevo_nombre_formal}'.")
         temp.delete()
-        messages.success(request, f"Aprobado y distribuido: {nuevo_nombre_formal}")
+        messages.success(request, f"Aprobado y guardado en su carpeta: {nuevo_nombre_formal}")
         
     except Exception as e:
         logger.error(f"Error aprobando archivo temporal: {e}")
         messages.error(request, f"Error al aprobar: {e}")
 
     return redirect('detalle_cliente', cliente_id=cliente.id)
-
 @login_required
 def rechazar_archivo_temporal(request, temp_id):
     temp = get_object_or_404(ArchivoTemporal, id=temp_id)
