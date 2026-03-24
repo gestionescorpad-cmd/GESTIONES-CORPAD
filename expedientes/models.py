@@ -1,3 +1,4 @@
+import os
 import uuid
 from decimal import Decimal
 from django.contrib.auth.models import AbstractUser
@@ -7,6 +8,26 @@ from django.utils import timezone
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.conf import settings
+from django.core.files.storage import default_storage # NUEVO IMPORT PARA BORRADO SEGURO
+
+# ==========================================
+# FUNCIONES PARA RUTAS ÚNICAS (EVITA DUPLICADOS Y SOBRESCRITURAS)
+# ==========================================
+def ruta_documento_unica(instance, filename):
+    ext = filename.split('.')[-1]
+    nuevo_nombre = f"{uuid.uuid4()}.{ext}"
+    carpeta_id = instance.carpeta.id if instance.carpeta else 'sin_carpeta'
+    return f'drive_legal/cliente_{instance.cliente_id}/carpeta_{carpeta_id}/{nuevo_nombre}'
+
+def ruta_archivo_unica(instance, filename):
+    ext = filename.split('.')[-1]
+    nuevo_nombre = f"{uuid.uuid4()}.{ext}"
+    return f'temp_uploads/carpeta_{instance.carpeta.id}/{nuevo_nombre}'
+
+def ruta_archivo_temporal(instance, filename):
+    ext = filename.split('.')[-1]
+    nuevo_nombre = f"{uuid.uuid4()}.{ext}"
+    return f'uploads_pendientes/solicitud_{instance.solicitud.id}/{nuevo_nombre}'
 
 # ==========================================
 # 1. USUARIOS
@@ -38,7 +59,7 @@ class Usuario(AbstractUser):
     access_contratos = models.BooleanField(default=False)
     access_disenador = models.BooleanField(default=False)
     access_agenda = models.BooleanField(default=False)
-    access_gastos = models.BooleanField(default=False)   # NUEVO
+    access_gastos = models.BooleanField(default=False)
     access_qr = models.BooleanField(default=False) 
 
     clientes_asignados = models.ManyToManyField('Cliente', blank=True, related_name='abogados_asignados')
@@ -60,10 +81,7 @@ class Cliente(models.Model):
     nombre_contacto = models.CharField(max_length=200)
     telefono = models.CharField(max_length=20, blank=True)
     email = models.EmailField()
-    
-    # --- CAMPO NUEVO (Dirección) ---
     direccion = models.TextField(blank=True, null=True, verbose_name="Dirección Fiscal")
-    
     logo = models.ImageField(upload_to='logos_clientes/', null=True, blank=True)
     fecha_registro = models.DateTimeField(auto_now_add=True)
     datos_extra = models.JSONField(default=dict, blank=True) 
@@ -71,18 +89,13 @@ class Cliente(models.Model):
     def __str__(self):
         return self.nombre_empresa
 
-    # --- LÓGICA AUTOMÁTICA PARA EL PDF ---
     @property
     def direccion_completa(self):
-        # 1. Si se llenó en el cliente, usar esa.
         if self.direccion:
             return self.direccion
-        
-        # 2. Si no, buscar en la cotización original.
         cotizacion_origen = self.cotizacion_origen.order_by('-fecha_creacion').first()
         if cotizacion_origen and cotizacion_origen.prospecto_direccion:
             return cotizacion_origen.prospecto_direccion
-            
         return "Domicilio no especificado"
 
 class CampoAdicional(models.Model):
@@ -105,51 +118,16 @@ class Carpeta(models.Model):
         return f"{self.nombre} - {self.cliente.nombre_empresa}"
 
     def obtener_detalle_cumplimiento(self):
-        # --- DEFINICIÓN MAESTRA DE REQUISITOS (Basada en PDF del Cliente) ---
         requisitos = {
-            'CARPETA ADMINISTRATIVA': [
-                'ACTA CONSTITUTIVA', 'PODER NOTARIAL', 'IDENTIFICACIÓN DEL REPRESENTANTE LEGAL', 
-                'CONSTANCIA DE SITUACIÓN FISCAL', 'PAGO PREDIAL', 'PAGO DE AGUA', 
-                'PLANO', 'ACREDITACION DE PROPIEDAD O POSESIÓN'
-            ],
-            'LICENCIA DE FUNCIONAMIENTO': [
-                'LICENCIA DE FUNCIONAMIENTO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 
-                'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 
-                'LICENCIA DE FUNCIONAMIENTO ACTUAL'
-            ],
-            'PROGRAMA ESPECIFICO DE PROTECCIÓN CIVIL': [
-                'PEPC VIGENTE', 'DICTAMEN ESTRUCTURAL', 'DICTAMEN ELECTRICO', 'ALERTAMIENTO SISMICO', 
-                'RESPONSIVA DE EXTINTORES', 'POLIZA DE SEGURO', 'CONSTANCIAS DE CAPACITACIÓN', 
-                'CONSTANCIAS 1ER SIMULACRO', 'CONSTANCIAS 2DO SIMULACRO', 'CONSTANCIAS 3ER SIMULACRO'
-            ],
-            'PROTECCIÓN CIVIL MUNICIPAL': [
-                'DICTAMEN ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 
-                'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'DICTAMEN ACTUAL'
-            ],
-            'PROTECCIÓN CIVIL ESTATAL': [
-                'REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 
-                'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL'
-            ],
-            'MEDIO AMBIENTE': [
-                'AUTORIZACIONES ANTERIORES', 'ACUSES DE INGRESO', 'ANALISIS DE AGUA RESIDUAL VIGENTE', 
-                'ANALISIS DE EMISIONES VIGENTE', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 
-                'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'VISTO BUENO ACTUAL', 
-                'REGISTRO DE DESCARGA DE AGUAS RESIDUALES ACTUAL', 'LICENCIA DE EMISIONES A LA ATMOSFERA ACTUAL'
-            ],
-            'REGISTRO AMBIENTAL ESTATAL': [
-                'AUTORIZACION ANTERIOR', 'ACUSES DE INGRESO', 'FACTURA DE RECOLECCIÓN DE BASURA', 
-                'CONTRATO DE RECOLECCIÓN DE BASURA', 'REGISTRO DE RECOLECTOR DE BASURA', 'ORDEN DE PAGO', 
-                'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 
-                'AUTORIZACIÓN ACTUAL'
-            ],
-            'CEDULA DE ZONIFICACIÓN': [
-                'REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 
-                'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL'
-            ],
-            'LICENCIA DE USO DE SUELO': [
-                'REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 
-                'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL'
-            ]
+            'CARPETA ADMINISTRATIVA': ['ACTA CONSTITUTIVA', 'PODER NOTARIAL', 'IDENTIFICACIÓN DEL REPRESENTANTE LEGAL', 'CONSTANCIA DE SITUACIÓN FISCAL', 'PAGO PREDIAL', 'PAGO DE AGUA', 'PLANO', 'ACREDITACION DE PROPIEDAD O POSESIÓN'],
+            'LICENCIA DE FUNCIONAMIENTO': ['LICENCIA DE FUNCIONAMIENTO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'LICENCIA DE FUNCIONAMIENTO ACTUAL'],
+            'PROGRAMA ESPECIFICO DE PROTECCIÓN CIVIL': ['PEPC VIGENTE', 'DICTAMEN ESTRUCTURAL', 'DICTAMEN ELECTRICO', 'ALERTAMIENTO SISMICO', 'RESPONSIVA DE EXTINTORES', 'POLIZA DE SEGURO', 'CONSTANCIAS DE CAPACITACIÓN', 'CONSTANCIAS 1ER SIMULACRO', 'CONSTANCIAS 2DO SIMULACRO', 'CONSTANCIAS 3ER SIMULACRO'],
+            'PROTECCIÓN CIVIL MUNICIPAL': ['DICTAMEN ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'DICTAMEN ACTUAL'],
+            'PROTECCIÓN CIVIL ESTATAL': ['REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL'],
+            'MEDIO AMBIENTE': ['AUTORIZACIONES ANTERIORES', 'ACUSES DE INGRESO', 'ANALISIS DE AGUA RESIDUAL VIGENTE', 'ANALISIS DE EMISIONES VIGENTE', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'VISTO BUENO ACTUAL', 'REGISTRO DE DESCARGA DE AGUAS RESIDUALES ACTUAL', 'LICENCIA DE EMISIONES A LA ATMOSFERA ACTUAL'],
+            'REGISTRO AMBIENTAL ESTATAL': ['AUTORIZACION ANTERIOR', 'ACUSES DE INGRESO', 'FACTURA DE RECOLECCIÓN DE BASURA', 'CONTRATO DE RECOLECCIÓN DE BASURA', 'REGISTRO DE RECOLECTOR DE BASURA', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'AUTORIZACIÓN ACTUAL'],
+            'CEDULA DE ZONIFICACIÓN': ['REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL'],
+            'LICENCIA DE USO DE SUELO': ['REGISTRO ANTERIOR', 'ACUSE DE INGRESO', 'ORDEN DE PAGO', 'RECIBO OFICIAL DE PAGO', 'FACTURA PAGO DE DERECHOS', 'COMPROBANTE DE APORTACIÓN', 'REGISTRO ACTUAL']
         }
 
         nombre_key = self.nombre.upper()
@@ -159,9 +137,7 @@ class Carpeta(models.Model):
         lista_req = requisitos[nombre_key]
         detalle = []
         for req in lista_req:
-            # Busca archivos que contengan el nombre del requisito (flexible)
             doc = self.documentos.filter(nombre_archivo__icontains=req).order_by('-fecha_subida').first()
-            
             if doc:
                 detalle.append({'nombre': req, 'estado': 'ok', 'doc': doc})
             else:
@@ -171,12 +147,22 @@ class Carpeta(models.Model):
 class Archivo(models.Model):
     nombre = models.CharField(max_length=200)
     carpeta = models.ForeignKey(Carpeta, on_delete=models.CASCADE, related_name='archivos')
-    archivo = models.FileField(upload_to='temp_uploads/') 
+    archivo = models.FileField(upload_to=ruta_archivo_unica) # ACTUALIZADO
     subido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.nombre
+
+    # BORRADO SEGURO
+    def delete(self, *args, **kwargs):
+        if self.archivo:
+            try:
+                if default_storage.exists(self.archivo.name):
+                    default_storage.delete(self.archivo.name)
+            except Exception as e:
+                print(f"Error borrando archivo de S3: {e}")
+        super().delete(*args, **kwargs)
 
 class Expediente(models.Model):
     ESTADOS = (('abierto', 'Abierto'), ('pausado', 'En Pausa'), ('finalizado', 'Finalizado'))
@@ -192,7 +178,7 @@ class Expediente(models.Model):
 class Documento(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='documentos')
     carpeta = models.ForeignKey(Carpeta, on_delete=models.CASCADE, related_name='documentos', null=True, blank=True)
-    archivo = models.FileField(upload_to='drive_legal/%Y/%m/%d/')
+    archivo = models.FileField(upload_to=ruta_documento_unica) # ACTUALIZADO
     nombre_archivo = models.CharField(max_length=255)
     subido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     fecha_subida = models.DateTimeField(auto_now_add=True)
@@ -200,6 +186,16 @@ class Documento(models.Model):
 
     def __str__(self):
         return self.nombre_archivo
+
+    # BORRADO SEGURO
+    def delete(self, *args, **kwargs):
+        if self.archivo:
+            try:
+                if default_storage.exists(self.archivo.name):
+                    default_storage.delete(self.archivo.name)
+            except Exception as e:
+                print(f"Error borrando documento de S3: {e}")
+        super().delete(*args, **kwargs)
 
     class Meta:
         verbose_name = "Documento"
@@ -256,60 +252,31 @@ class PlantillaMensaje(models.Model):
     imagen_cabecera = models.ImageField(upload_to='plantillas_img/', blank=True, null=True)
 
 class Cotizacion(models.Model):
-    ESTADOS = (
-        ('borrador', 'Borrador'),
-        ('enviada', 'Enviada'),
-        ('aceptada', 'Aceptada'),
-        ('rechazada', 'Rechazada'),
-    )
-
+    ESTADOS = (('borrador', 'Borrador'), ('enviada', 'Enviada'), ('aceptada', 'Aceptada'), ('rechazada', 'Rechazada'))
     folio = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    titulo = models.CharField(max_length=255, verbose_name="Título del Proyecto", blank=True, null=True, help_text="Ej. Renovación de Licencias 2026")
-    
-    # Datos del Cliente
+    titulo = models.CharField(max_length=255, verbose_name="Título del Proyecto", blank=True, null=True)
     prospecto_empresa = models.CharField(max_length=200, blank=True, null=True, verbose_name="Empresa")
     prospecto_nombre = models.CharField(max_length=200, verbose_name="Nombre del Contacto")
     prospecto_email = models.EmailField(blank=True, null=True)
     prospecto_telefono = models.CharField(max_length=20, blank=True, null=True)
     prospecto_direccion = models.TextField(verbose_name="Dirección Fiscal Completa", blank=True, null=True)
     prospecto_cargo = models.CharField(max_length=150, verbose_name="Cargo", blank=True, null=True)
-    
-    # Lógica de Descuento
     porcentaje_descuento = models.DecimalField(max_digits=5, decimal_places=2, default=0.00, verbose_name="Descuento (%)")
     descuento = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, verbose_name="Descuento ($)")
-
-    # IVA Flexible
     aplica_iva = models.BooleanField(default=False, verbose_name="¿Lleva IVA?")
     porcentaje_iva = models.DecimalField(max_digits=5, decimal_places=2, default=16.00, verbose_name="Tasa IVA (%)")
     monto_iva = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-
-    # Totales
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00) # Neto sin IVA
-    total_con_iva = models.DecimalField(max_digits=12, decimal_places=2, default=0.00) # Total Final
-    
-    # Metadatos
+    total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    total_con_iva = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     creado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     validez_hasta = models.DateField(null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADOS, default='borrador')
-    
     cliente_convertido = models.ForeignKey('Cliente', on_delete=models.SET_NULL, null=True, blank=True, related_name='cotizacion_origen')
-    
-    # Condiciones Comerciales
-    OPCIONES_PAGO = (
-        ('50_50', '50% Anticipo - 50% al Finalizar'),
-        ('100_entrega', '100% Contra Entrega de Resultados'),
-        ('contado', 'Pago de Contado (Una sola exhibición)')
-    )
+    OPCIONES_PAGO = (('50_50', '50% Anticipo - 50% al Finalizar'), ('100_entrega', '100% Contra Entrega de Resultados'), ('contado', 'Pago de Contado'))
     condiciones_pago = models.CharField(max_length=20, choices=OPCIONES_PAGO, default='50_50', verbose_name="Forma de Pago")
-
-    OPCIONES_TIEMPO = (
-        ('30_dias', '30 Días Hábiles'),
-        ('60_dias', '60 Días Hábiles'),
-        ('90_dias', '90 Días Hábiles'),
-        ('indefinido', 'Por definir según avance procesal')
-    )
+    OPCIONES_TIEMPO = (('30_dias', '30 Días Hábiles'), ('60_dias', '60 Días Hábiles'), ('90_dias', '90 Días Hábiles'), ('indefinido', 'Por definir según avance procesal'))
     tiempo_entrega = models.CharField(max_length=20, choices=OPCIONES_TIEMPO, default='30_dias', verbose_name="Tiempo de Gestión")
 
     def __str__(self):
@@ -318,31 +285,18 @@ class Cotizacion(models.Model):
     def calcular_totales(self):
         suma_items = sum(item.cantidad * item.precio_unitario for item in self.items.all())
         self.subtotal = Decimal(suma_items)
-        
         if self.porcentaje_descuento > 0:
             self.descuento = self.subtotal * (self.porcentaje_descuento / Decimal('100'))
         else:
             self.descuento = Decimal('0.00')
-            
         base_imponible = self.subtotal - self.descuento
-
         if self.aplica_iva:
             self.monto_iva = base_imponible * (self.porcentaje_iva / Decimal('100'))
         else:
             self.monto_iva = Decimal('0.00')
-
         self.total = base_imponible
         self.total_con_iva = base_imponible + self.monto_iva
-        
-        Cotizacion.objects.filter(id=self.id).update(
-            subtotal=self.subtotal,
-            descuento=self.descuento,
-            aplica_iva=self.aplica_iva,
-            porcentaje_iva=self.porcentaje_iva,
-            monto_iva=self.monto_iva,
-            total=self.total,
-            total_con_iva=self.total_con_iva
-        )
+        Cotizacion.objects.filter(id=self.id).update(subtotal=self.subtotal, descuento=self.descuento, aplica_iva=self.aplica_iva, porcentaje_iva=self.porcentaje_iva, monto_iva=self.monto_iva, total=self.total, total_con_iva=self.total_con_iva)
 
 class ItemCotizacion(models.Model):
     cotizacion = models.ForeignKey(Cotizacion, related_name='items', on_delete=models.CASCADE)
@@ -421,24 +375,13 @@ class Evento(models.Model):
 def crear_carpetas_base(sender, instance, created, **kwargs):
     if created:
         carpetas_nombres = [
-            'CARPETA ADMINISTRATIVA', 
-            'LICENCIA DE FUNCIONAMIENTO', 
-            'PROGRAMA ESPECIFICO DE PROTECCIÓN CIVIL', 
-            'PROTECCIÓN CIVIL MUNICIPAL', 
-            'PROTECCIÓN CIVIL ESTATAL', 
-            'MEDIO AMBIENTE', 
-            'REGISTRO AMBIENTAL ESTATAL', 
-            'CEDULA DE ZONIFICACIÓN', 
-            'LICENCIA DE USO DE SUELO',
-            'Cotizaciones',
-            'Autorizaciones liberadas'  # <-- Agregada como carpeta raíz
+            'CARPETA ADMINISTRATIVA', 'LICENCIA DE FUNCIONAMIENTO', 'PROGRAMA ESPECIFICO DE PROTECCIÓN CIVIL', 
+            'PROTECCIÓN CIVIL MUNICIPAL', 'PROTECCIÓN CIVIL ESTATAL', 'MEDIO AMBIENTE', 'REGISTRO AMBIENTAL ESTATAL', 
+            'CEDULA DE ZONIFICACIÓN', 'LICENCIA DE USO DE SUELO', 'Cotizaciones', 'Autorizaciones liberadas'
         ]
         for nombre in carpetas_nombres:
-            Carpeta.objects.get_or_create(
-                nombre=nombre,
-                cliente=instance,
-                defaults={'es_expediente': False}
-            )
+            Carpeta.objects.get_or_create(nombre=nombre, cliente=instance, defaults={'es_expediente': False})
+
 # ==========================================
 # 9. CARGA EXTERNA (CLIENT PORTAL)
 # ==========================================
@@ -453,36 +396,35 @@ class SolicitudEnlace(models.Model):
 
 class ArchivoTemporal(models.Model):
     solicitud = models.ForeignKey(SolicitudEnlace, on_delete=models.CASCADE, related_name='archivos_temp')
-    archivo = models.FileField(upload_to='uploads_pendientes/')
+    archivo = models.FileField(upload_to=ruta_archivo_temporal) # ACTUALIZADO
     nombre_requisito = models.CharField(max_length=255)
     fecha_subida = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
         return f"{self.nombre_requisito} - Pendiente"
 
-# expedientes/models.py
+    # BORRADO SEGURO
+    def delete(self, *args, **kwargs):
+        if self.archivo:
+            try:
+                if default_storage.exists(self.archivo.name):
+                    default_storage.delete(self.archivo.name)
+            except Exception as e:
+                pass
+        super().delete(*args, **kwargs)
 
 class FacturaGasto(models.Model):
-    # Identificador único del SAT (UUID) para evitar duplicados
     uuid = models.CharField(max_length=36, unique=True, verbose_name="Folio Fiscal (UUID)")
-    
-    # Datos del XML
     fecha_emision = models.DateTimeField()
     rfc_emisor = models.CharField(max_length=13)
     nombre_emisor = models.CharField(max_length=255)
     rfc_receptor = models.CharField(max_length=13)
     nombre_receptor = models.CharField(max_length=255)
-    
-    # Montos
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     total_impuestos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     moneda = models.CharField(max_length=10, default="MXN")
-    
-    # Archivo físico
     archivo_xml = models.FileField(upload_to='gastos/xml/%Y/%m/')
-    
-    # Metadatos internos
     fecha_carga = models.DateTimeField(auto_now_add=True)
     cargado_por = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True)
     

@@ -145,7 +145,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 WHITENOISE_ROOT = os.path.join(BASE_DIR, 'static')
 
 # ---> CONFIGURACIÓN DINÁMICA DE ALMACENAMIENTO <---
-# Si Railway tiene las variables de AWS, usará S3. Si estás en local sin llaves, guardará normal.
 if env('AWS_ACCESS_KEY_ID', default=''):
     AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY')
@@ -226,3 +225,11 @@ mimetypes.add_type("application/pdf", ".pdf", True)
 mimetypes.add_type("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx", True)
 mimetypes.add_type("image/svg+xml", ".svg", True)
 mimetypes.add_type("text/javascript", ".js", True)
+
+
+# ==========================================
+# 13. LÍMITES DE SUBIDA DE ARCHIVOS
+# ==========================================
+# Se aumenta el límite para permitir subir archivos de hasta 50 MB (el valor está en bytes)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
