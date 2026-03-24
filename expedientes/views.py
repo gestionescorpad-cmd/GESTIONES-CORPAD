@@ -2051,11 +2051,20 @@ def preview_archivo(request, documento_id):
     try:
         if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']:
             data['tipo'] = 'imagen'
-        elif ext in ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'ppt', 'pptx']:
+            
+        elif ext == 'pdf':
+            # ¡EL TRUCO! Si es PDF, mandamos la URL directa de AWS S3. 
+            # El navegador (Chrome/Edge/Safari) usará su propio visor interno, el cual NO tiene límite de 25MB.
+            data['tipo'] = 'pdf'
+            data['url'] = url_segura
+            
+        elif ext in ['docx', 'xlsx', 'xls', 'csv', 'ppt', 'pptx']:
+            # Si es Word o Excel, seguimos usando el visor de Google porque el navegador no los lee nativamente.
             url_codificada = urllib.parse.quote(url_segura)
             visor_url = f"https://docs.google.com/viewer?url={url_codificada}&embedded=true"
-            data['tipo'] = 'pdf'
+            data['tipo'] = 'pdf'  # El frontend usa esta misma etiqueta para crear el recuadro (iframe)
             data['url'] = visor_url
+            
         elif ext in ['mp4', 'webm', 'ogg']:
             data['tipo'] = 'video'
         elif ext in ['mp3', 'wav']:
@@ -2071,11 +2080,6 @@ def preview_archivo(request, documento_id):
         data['tipo'] = 'error'
 
     return JsonResponse(data)
-
-@login_required
-def obtener_preview_archivo(request, archivo_id):
-    return preview_archivo(request, archivo_id)
-
 # <--- DESCARGA DIRECTA OPTIMIZADA PARA S3 --->
 @login_required
 def descargar_archivo_oficial(request, archivo_id):
