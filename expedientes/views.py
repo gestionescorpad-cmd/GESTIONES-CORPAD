@@ -2080,6 +2080,10 @@ def preview_archivo(request, documento_id):
         data['tipo'] = 'error'
 
     return JsonResponse(data)
+@login_required
+def obtener_preview_archivo(request, archivo_id):
+    return preview_archivo(request, archivo_id)
+
 # <--- DESCARGA DIRECTA OPTIMIZADA PARA S3 --->
 @login_required
 def descargar_archivo_oficial(request, archivo_id):
